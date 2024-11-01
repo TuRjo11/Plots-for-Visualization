@@ -1,0 +1,149 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from google.colab import drive
+from matplotlib.lines import Line2D
+
+# Mount Google Drive
+drive.mount('/content/drive')
+
+# Define the file paths for each GCM on Google Drive
+gcm_files = {
+    'ACCESS-CM2-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/ACCESS-CM2-SUB.xlsx",
+    'ACCESS-ESM1-5-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/ACCESS-ESM1-5-SUB.xlsx",
+    'BCC-CSM2-MR-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/BCC-CSM2-MR-SUB.xlsx",
+    'CanESM5-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/CanESM5-SUB.xlsx",
+    'EC-Earth3-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/EC-Earth3-SUB.xlsx",
+    'EC-Earth3-Veg-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/EC-Earth3-Veg-SUB.xlsx",
+    'INM-CM4-8-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/INM-CM4-8-SUB.xlsx",
+    'INM-CM5-0-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/INM-CM5-0-SUB.xlsx",
+    'MPI-ESM1-2-HR-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/MPI-ESM1-2-HR-SUB.xlsx",
+    'MPI-ESM1-2-LR-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/MPI-ESM1-2-LR-SUB.xlsx",
+    'MRI-ESM2-0-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/MRI-ESM2-0-SUB.xlsx",
+    'NorESM2-LM-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/NorESM2-LM-SUB.xlsx",
+    'NorESM2-MM-SUB': "/content/drive/MyDrive/JOURNAL (drafts n all)/Results/Amalshid SW,ET/NorESM2-MM-SUB.xlsx"
+}
+
+# Define time periods for analysis
+time_periods = {
+    'Baseline (1984-2014)': (1984, 2014),
+    'Near Future (2015-2040)': (2015, 2040),
+    'Mid Future (2041-2070)': (2041, 2070),
+    'Far Future (2071-2100)': (2071, 2100)
+}
+
+# Simplified labels for the time periods (no year ranges)
+period_labels = {
+    'Baseline (1984-2014)': 'Baseline',
+    'Near Future (2015-2040)': 'Near Future',
+    'Mid Future (2041-2070)': 'Mid Future',
+    'Far Future (2071-2100)': 'Far Future'
+}
+
+# Function to load GCM data, filter by year range, assign seasons, and calculate seasonal averages
+def load_and_aggregate_gcm_data_seasonal(file_path: str, scenario: str, start_year: int, end_year: int):
+    precip_scenario = f'PRECIPmm {scenario}'
+    et_scenario = f'Etmm {scenario}'
+    sw_scenario = f'SWmm {scenario}'
+
+    df = pd.read_excel(file_path)
+    df['Date'] = pd.to_datetime(df['Date'])
+    df = df.loc[(df['Date'].dt.year >= start_year) & (df['Date'].dt.year <= end_year)].copy()  # Avoiding SettingWithCopyWarning
+    df['Month'] = df['Date'].dt.month
+
+    # Define seasons based on Bangladesh and India's climate pattern
+    df['Season'] = df['Month'].apply(lambda x: 'Winter (DJF)' if x in [12, 1, 2]
+                                      else 'Pre-Monsoon (MAM)' if x in [3, 4, 5]
+                                      else 'Monsoon (JJAS)' if x in [6, 7, 8, 9]
+                                      else 'Post-Monsoon (ON)')
+
+    # Calculate seasonal averages
+    seasonal_avg = df.groupby('Season').agg({
+        precip_scenario: 'mean',
+        et_scenario: 'mean',
+        sw_scenario: 'mean'
+    }).rename(columns={
+        precip_scenario: 'Precipitation (mm)',
+        et_scenario: 'Evapotranspiration (mm)',
+        sw_scenario: 'Soil Water Content (mm)'
+    })
+
+    # Order seasons for consistent plotting
+    seasonal_avg = seasonal_avg.reindex(['Winter (DJF)', 'Pre-Monsoon (MAM)', 'Monsoon (JJAS)', 'Post-Monsoon (ON)'])
+    return seasonal_avg
+
+# Function to calculate ensemble seasonal data across all GCMs for each time period
+def calculate_ensemble_seasonal_by_period(period_name, scenario, start_year, end_year):
+    ensemble_data = []
+    for gcm_name, file_path in gcm_files.items():
+        gcm_data = load_and_aggregate_gcm_data_seasonal(file_path, scenario, start_year, end_year)
+        ensemble_data.append(gcm_data)
+
+    # Calculate ensemble mean
+    ensemble_seasonal_df = pd.concat(ensemble_data).groupby('Season').mean()
+    ensemble_seasonal_df['Period'] = period_name
+    return ensemble_seasonal_df
+
+# Function to aggregate seasonal data for all time periods
+def calculate_all_periods_seasonal(scenario):
+    all_periods_data = []
+    for period_name, (start_year, end_year) in time_periods.items():
+        period_data = calculate_ensemble_seasonal_by_period(period_name, scenario, start_year, end_year)
+        all_periods_data.append(period_data)
+    return pd.concat(all_periods_data)
+
+# Plotting function for side-by-side plots of SSP245 and SSP585
+def plot_scenarios_side_by_side():
+    scenarios = ['SSP245', 'SSP585']
+    colors_dict = {
+        'SSP245': {'Baseline (1984-2014)': '#808080', 'Near Future (2015-2040)': '#87CEFA', 'Mid Future (2041-2070)': '#4682B4', 'Far Future (2071-2100)': '#00008B'},
+        'SSP585': {'Baseline (1984-2014)': '#808080', 'Near Future (2015-2040)': '#FFA07A', 'Mid Future (2041-2070)': '#FF4500', 'Far Future (2071-2100)': '#8B0000'}
+    }
+
+    fig, axes = plt.subplots(1, 2, figsize=(22, 8), sharey=True, dpi=400)
+
+    for idx, scenario in enumerate(scenarios):
+        ax1 = axes[idx]
+        colors = colors_dict[scenario]
+        all_periods_seasonal_df = calculate_all_periods_seasonal(scenario)
+
+        width = 0.2  # width for bars
+        x = range(len(all_periods_seasonal_df.index.unique()))  # x positions for each season
+
+        # Plot Precipitation bars
+        for i, (period_name, color) in enumerate(colors.items()):
+            subset = all_periods_seasonal_df[all_periods_seasonal_df['Period'] == period_name]
+            ax1.bar([p + i * width for p in x], subset['Precipitation (mm)'], color=color, width=width, alpha=0.8)
+
+        ax1.set_ylabel('Precipitation (mm)' if idx == 0 else "", fontsize=15)
+        ax1.set_xticks([p + 1.5 * width for p in x])
+        ax1.set_xticklabels(all_periods_seasonal_df.index.unique(), fontsize=13)
+        ax1.set_title(f"Seasonal Precipitation, Evapotranspiration, and Soil Water Content ({scenario})", fontsize=15, pad=15)
+        ax1.grid(axis='y', linestyle='--', alpha=0.7)
+
+        # Secondary y-axis for ET and SW
+        ax2 = ax1.twinx()
+        for period_name, color in colors.items():
+            subset = all_periods_seasonal_df[all_periods_seasonal_df['Period'] == period_name]
+            ax2.plot(subset.index, subset['Evapotranspiration (mm)'], color=color, marker='o', linestyle='-', linewidth=2)
+            ax2.plot(subset.index, subset['Soil Water Content (mm)'], color=color, marker='s', linestyle='--', linewidth=2)
+        ax2.set_ylabel('Evapotranspiration and Soil Water Content (mm)', fontsize=15)
+
+        # Combined Legend with simplified Time Period Labels
+        precip_legend = [Line2D([0], [0], color=color, marker='s', linestyle='') for color in colors.values()]
+        et_legend = [Line2D([0], [0], color=color, marker='o', linestyle='-', linewidth=2) for color in colors.values()]
+        sw_legend = [Line2D([0], [0], color=color, marker='s', linestyle='--', linewidth=2) for color in colors.values()]
+        combined_legend = precip_legend + et_legend + sw_legend
+        combined_labels = [
+            f"{period_labels[period]} - Precipitation" for period in colors.keys()
+        ] + [
+            f"{period_labels[period]} - Evapotranspiration" for period in colors.keys()
+        ] + [
+            f"{period_labels[period]} - Soil Water Content" for period in colors.keys()
+        ]
+        ax1.legend(combined_legend, combined_labels, loc='upper left', bbox_to_anchor=(0.6, 0.993), fontsize=13, frameon=True)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.92])
+    plt.show()
+
+# Example usage
+plot_scenarios_side_by_side()
